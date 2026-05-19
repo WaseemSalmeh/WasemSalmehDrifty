@@ -67,9 +67,14 @@ public class CarInputController : MonoBehaviour {
 	private float defaultAngularDamping;
 	private Vector3 startPosition;
 	private Quaternion startRotation;
+	private bool inputLocked;
 	public bool ReadyMove { get {
-			return engineWorking && carInFocus;
+			return engineWorking && carInFocus && !inputLocked;
 		}
+	}
+
+	public bool IsInputLocked {
+		get { return inputLocked; }
 	}
 
 	private bool EngineTogglePressed {
@@ -163,7 +168,7 @@ public class CarInputController : MonoBehaviour {
 
     void Start () {
         rb = GetComponent<Rigidbody>();
-        audioSource = GetComponent<AudioSource>();
+        audioSource = EnsureEngineAudioSource();
 		startPosition = transform.position;
 		startRotation = transform.rotation;
 		if (rb != null && COM != null) {
@@ -185,23 +190,90 @@ public class CarInputController : MonoBehaviour {
 		SetupDriftEffects();
     }
 
+	AudioSource EnsureEngineAudioSource () {
+		if (audioSource == null) audioSource = GetComponent<AudioSource>();
+		if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
+		audioSource.playOnAwake = false;
+		audioSource.loop = false;
+		audioSource.spatialBlend = 0.55f;
+		audioSource.dopplerLevel = 0f;
+		audioSource.priority = 64;
+		audioSource.minDistance = 8f;
+		audioSource.maxDistance = 80f;
+		return audioSource;
+	}
+
 	public void StartEngine () {
 		engineManuallyStopped = false;
-		if (engineWorking) return;
+		audioSource = EnsureEngineAudioSource();
+		if (engineWorking && audioSource != null && audioSource.isPlaying) return;
 		engineWorking = true;
 		if (audioSource == null) return;
-		StartCoroutine("StartEngineCor");
+		StopCoroutine(nameof(StartEngineCor));
+		StartCoroutine(nameof(StartEngineCor));
 	}
 
 	public void StopEngine () {
 		engineManuallyStopped = true;
+		StopCoroutine(nameof(StartEngineCor));
 		if (audioSource != null) audioSource.Stop();
 		engineWorking = false;
+	}
+
+	public void SetInputLocked (bool locked) {
+		inputLocked = locked;
+		if (locked) {
+			isDrifting = false;
+			ClearDriftEffects();
+		}
+	}
+
+	public void SetRaceStartPose (Vector3 position, Quaternion rotation) {
+		startPosition = position;
+		startRotation = rotation;
+	}
+
+	public void ResetToRaceStart () {
+		ResetCarToStart();
+	}
+
+	public void ConfigureRaceHandling (
+		float tunedMaxSpeed,
+		float tunedPower,
+		float tunedBrakePower,
+		float tunedDriftRearGrip,
+		float tunedDriftYawAssist,
+		float tunedDriftSideAssist,
+		float tunedOffTrackPower,
+		float tunedHighSpeedSteering,
+		float tunedHighSpeedStability,
+		float tunedDownforce) {
+		maxSpeed = tunedMaxSpeed;
+		powerEngine = tunedPower;
+		brakePower = tunedBrakePower;
+		driftRearSideGrip = tunedDriftRearGrip;
+		driftYawAssist = tunedDriftYawAssist;
+		driftSideAssist = tunedDriftSideAssist;
+		offTrackPowerMultiplier = tunedOffTrackPower;
+		highSpeedSteeringReduction = tunedHighSpeedSteering;
+		highSpeedLateralStability = tunedHighSpeedStability;
+		highSpeedDownforce = tunedDownforce;
+	}
+
+	public void ConfigureAudioClips (AudioClip startClip, AudioClip workingClip, AudioClip driftClip) {
+		if (startClip != null) StartEngineClip = startClip;
+		if (workingClip != null) WorkingEngineClip = workingClip;
+		if (driftClip != null) DriftClip = driftClip;
+		audioSource = EnsureEngineAudioSource();
+		if (driftAudioSource != null) {
+			driftAudioSource.clip = DriftClip != null ? DriftClip : CreateDriftClip();
+		}
 	}
 
 	IEnumerator StartEngineCor () {
 		if (StartEngineClip != null) {
 			audioSource.clip = StartEngineClip;
+			audioSource.loop = false;
 			audioSource.Play();
 			yield return new WaitForSeconds(StartEngineClip.length);
 		}
@@ -215,7 +287,7 @@ public class CarInputController : MonoBehaviour {
 		if (ResetPressed) {
 			ResetCarToStart();
 		}
-		if (EngineTogglePressed && carInFocus) {
+		if (EngineTogglePressed && carInFocus && !inputLocked) {
 			if (engineWorking) {
 				StopEngine();
 			} else {
@@ -231,12 +303,12 @@ public class CarInputController : MonoBehaviour {
 			StartEngine();
 		}
 		if (!carInFocus && currentSpeed < 0.01f) return;
-		float inputVertical = VerticalInput;
-		float inputHorizontal = HorizontalInput;
+		float inputVertical = inputLocked ? 0f : VerticalInput;
+		float inputHorizontal = inputLocked ? 0f : HorizontalInput;
 		float speedRatio = GetSpeedRatio(currentSpeed);
 		float steeringScale = GetSteeringScale(speedRatio);
 		float effectiveHorizontal = inputHorizontal * steeringScale;
-		bool driftPressed = DriftPressed;
+		bool driftPressed = !inputLocked && DriftPressed;
 		isOnAsphalt = IsOnAsphalt();
 		bool driftRequested = carInFocus && isOnAsphalt && driftPressed && currentSpeed > driftMinSpeed;
 		float lateralSlip = Mathf.Abs(transform.InverseTransformDirection(rb.linearVelocity).x);
@@ -257,6 +329,11 @@ public class CarInputController : MonoBehaviour {
 			}
 
 			if (carInFocus) {
+				if (inputLocked) {
+					wheels[i].wheelCollider.motorTorque = 0f;
+					wheels[i].wheelCollider.brakeTorque = Mathf.Max(wheels[i].wheelCollider.brakeTorque, brakePower);
+					wheels[i].wheelCollider.steerAngle = 0f;
+				} else
 				if (engineWorking) {
 					if (wheels[i].wheelCollider.rpm < 0.01f && inputVertical < 0f || wheels[i].wheelCollider.rpm >= -0.01f && inputVertical >= 0f) {
 						wheels[i].wheelCollider.brakeTorque = 0;
@@ -610,15 +687,20 @@ public class CarInputController : MonoBehaviour {
 
 	AudioClip CreateDriftClip () {
 		const int sampleRate = 44100;
-		const int sampleCount = sampleRate * 2;
+		const int sampleCount = sampleRate * 3;
 		var samples = new float[sampleCount];
+		float roughState = 0f;
+		float hissState = 0f;
 		for (int i = 0; i < sampleCount; i++) {
 			float t = i / (float)sampleRate;
-			float hiss = Mathf.PerlinNoise(t * 115f, 0.37f) * 2f - 1f;
-			float coarse = Mathf.PerlinNoise(t * 31f, 0.83f) * 2f - 1f;
-			float scrape = Mathf.Sin(t * 2f * Mathf.PI * 72f) * 0.16f;
-			float rumble = Mathf.Sin(t * 2f * Mathf.PI * 38f) * 0.08f;
-			samples[i] = Mathf.Clamp((hiss * 0.42f) + (coarse * 0.22f) + scrape + rumble, -0.75f, 0.75f);
+			float white = Mathf.PerlinNoise(t * 640f, 0.37f) * 2f - 1f;
+			float coarse = Mathf.PerlinNoise(t * 74f, 0.83f) * 2f - 1f;
+			roughState = Mathf.Lerp(roughState, coarse, 0.055f);
+			hissState = Mathf.Lerp(hissState, white, 0.34f);
+			float scrape = Mathf.Sin(t * 2f * Mathf.PI * 96f) * 0.12f + Mathf.Sin(t * 2f * Mathf.PI * 141f) * 0.055f;
+			float tireRumble = Mathf.Sin(t * 2f * Mathf.PI * 47f) * 0.07f;
+			float asphaltPulse = Mathf.PerlinNoise(t * 18f, 0.18f) * 0.22f + 0.78f;
+			samples[i] = Mathf.Clamp(((hissState * 0.45f) + (roughState * 0.30f) + scrape + tireRumble) * asphaltPulse, -0.82f, 0.82f);
 		}
 
 		const int crossfadeSamples = 2048;
@@ -651,8 +733,8 @@ public class CarInputController : MonoBehaviour {
 		if (driftAudioSource == null) return;
 		if (active) {
 			if (!driftAudioSource.isPlaying) driftAudioSource.Play();
-			driftAudioSource.volume = Mathf.Lerp(driftAudioSource.volume, Mathf.Lerp(0.28f, 0.9f, intensity), Time.fixedDeltaTime * 10f);
-			driftAudioSource.pitch = Mathf.Lerp(0.82f, 1.28f, intensity);
+			driftAudioSource.volume = Mathf.Lerp(driftAudioSource.volume, Mathf.Lerp(0.22f, 0.74f, intensity), Time.fixedDeltaTime * 10f);
+			driftAudioSource.pitch = Mathf.Lerp(0.92f, 1.18f, intensity);
 		} else {
 			driftAudioSource.volume = Mathf.Lerp(driftAudioSource.volume, 0f, Time.fixedDeltaTime * 8f);
 			if (driftAudioSource.volume < 0.02f && driftAudioSource.isPlaying) driftAudioSource.Stop();
