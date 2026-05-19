@@ -12,16 +12,39 @@ public class SetCamera : MonoBehaviour {
 	[SerializeField] private GameObject ui;
 
 	private CarInputController carController;
+
+	private bool GetKeyDown (KeyCode key) {
+#if ENABLE_LEGACY_INPUT_MANAGER
+		if (Input.GetKeyDown(key)) return true;
+#endif
+#if ENABLE_INPUT_SYSTEM
+		var keyboard = UnityEngine.InputSystem.Keyboard.current;
+		if (keyboard == null) return false;
+		switch (key) {
+			case KeyCode.F1:
+				return keyboard.f1Key.wasPressedThisFrame;
+			case KeyCode.V:
+				return keyboard.vKey.wasPressedThisFrame;
+			case KeyCode.C:
+				return keyboard.cKey.wasPressedThisFrame;
+			default:
+				return false;
+		}
+#else
+		return false;
+#endif
+	}
+
 	void Awake () {
         SetCurrentCamera();
 		SetCurrentCar();
     }
 	void Update () {
-		if (Input.GetKeyDown(KeyCode.F1)) {
+		if (GetKeyDown(KeyCode.F1)) {
 			if (ui != null)
 				ui.SetActive(!ui.activeInHierarchy);
 		}
-		if (Input.GetKeyDown(KeyCode.V)) {
+		if (GetKeyDown(KeyCode.V)) {
             if (currentCamera+1 < cameras.Length){
                 currentCamera++;
             }
@@ -31,7 +54,7 @@ public class SetCamera : MonoBehaviour {
             SetCurrentCamera(currentCamera);
         }
 
-		if (Input.GetKeyDown(KeyCode.C)) {
+		if (GetKeyDown(KeyCode.C)) {
 			if (currentCar + 1 < cars.Length) {
 				currentCar++;
 			} else {
