@@ -36,6 +36,10 @@ The forest map needed a finish line and spawn point too. I moved the spawn point
 
 Lighting was another big part of the forest map. Since the forest has a darker mood, I added front lights and back lights for vehicles only on that map. The first headlights looked too sharp and unrealistic, so I softened them by lowering the intensity, widening the light angle, and adding smoother glow effects. I had some problems with adjusting the lights on some vehicles, so some of them have their headlights and tail lights are off their right place. I also worked on the forest sky and lighting so it fits the night style better, while the desert keeps its brighter racing feel.
 
+AI help
+
+In some situations, I used AI help when I was stuck or wanted to improve something faster. I used it for parts like fixing car movement problems, improving drifting, organizing some scripts, adjusting sounds and visual effects, fixing UI issues, and helping with map or lighting problems. I still had to test the changes, decide what worked, and adjust things inside Unity, so the AI was more like a helper during difficult parts instead of doing the whole project by itself.
+
 Near the end, I cleaned the project structure. Screenshots were sorted into folders, the skybox demo and the cars were moved into ThirdParty, input files were moved into Settings, recovery files were placed in a backup folder, and the forest map builder was moved into the forest map folder. Overall, I learned a lot about Unity scenes, prefabs, scripts, UI, sounds, lighting, materials, GitHub commits, and how small problems can slowly turn into better systems when they are fixed one by one.
 
 Controls
